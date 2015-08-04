@@ -6,18 +6,22 @@ import lupusintabulabot.engine as lupus
 
 
 @pytest.mark.asyncio
-def test_player_vote(unused_tcp_port, event_loop):
-    def vote(reader, writer):
-        player = lupus.Player(
-            1, lupus.Role.villager, reader, writer)
-        writer.write(2)
-        voted = yield from player.vote()
-        return voted
-
-    server = asyncio.start_server(
-        vote,
-        'localhost',
-        port=unused_tcp_port,
-        loop=event_loop
-    )
+def test_player_vote():
+    player = lupus.Player(
+        1,
+        lupus.Role.villager,
+        lupus.RemoteStub())
+    voted = yield from player.vote()
     assert voted == 2
+
+
+def test_game_machine_init(event_loop):
+    players = [
+        lupus.Player(
+            i, role, lupus.RemoteStub())
+        for i, role in enumerate(lupus.Role)]
+    game = lupus.Game(players, event_loop)
+    assert game.state == "initializing"
+    game.run()
+    assert game.state == "day"
+    assert len(game.players) == 3
