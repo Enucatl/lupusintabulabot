@@ -2,6 +2,7 @@
 
 import enum
 import asyncio
+import random
 
 import transitions
 
@@ -16,13 +17,16 @@ class Role(enum.Enum):
         self.special = special
 
     def __repr__(self):
-        return "Role(good={0.good}, special={0.special})".format(self)
+        return "Role(good={0.good}, special={0.special})  # {0.name}".format(self)
 
 
 class Remote:
+
+    @asyncio.coroutine
     def get(self):
         raise NotImplementedError
 
+    @asyncio.coroutine
     def post(self, payload):
         raise NotImplementedError
 
@@ -31,7 +35,12 @@ class RemoteStub:
 
     @asyncio.coroutine
     def get(self):
-        return 2
+        vote = random.choice(self.can_vote)
+        return vote
+
+    @asyncio.coroutine
+    def post(self, payload):
+        self.can_vote = payload
 
     
 class Player:
@@ -44,7 +53,8 @@ class Player:
         self.alive = True
 
     @asyncio.coroutine
-    def vote(self):
+    def vote(self, can_vote):
+        yield from self.remote.post(can_vote)
         voted = yield from self.remote.get()
         return voted
 
@@ -64,12 +74,13 @@ class Game:
         self.machine = transitions.Machine(
             model=self,
             states=["initializing", "day", "night", "end"],
-            initial="initializing"
+            initial="initializing",
         )
         self.machine.add_transition(
             trigger="start",
             source="initializing",
-            dest="day")
+            dest="day"
+        )
         self.machine.add_transition(
             trigger="day",
             source="day",
@@ -88,33 +99,69 @@ class Game:
         )
 
     def run(self):
-        self.start()
+        self.loop.call_soon(self.start)
+        self.loop.call_soon(self.day)
+        self.loop.create_task(self.day_vote())
         self.loop.run_forever()
+        self.loop.close()
 
     @asyncio.coroutine
-    def on_enter_day(self):
-        print("VOTING")
-        #votes = yield from asyncio.gather(player.vote() for player in self.alive_players())
-        #print(votes)
-        #self.end()
-        #self.night()
+    def day_vote(self):
+        votes = yield from asyncio.gather(
+            *[player.vote(
+                [other_player.uuid
+                 for other_player in self.alive_players
+                 if other_player is not player])
+                for player in self.alive_players
+            ]
+        )
+        voted = max(votes, key=votes.count)
+        self.players[voted].alive = False
+        if self.end(): return
+        self.night()
+        self.loop.create_task(self.night_vote())
 
-    def on_enter_night(self):
-        print("VOTING")
-        votes = yield from asyncio.gather(player.vote() for player in self.alive_players())
-        print(votes)
-        self.end()
+    @asyncio.coroutine
+    def night_vote(self):
+        votes = yield from asyncio.gather(
+            *[player.vote(
+                [other_player.uuid
+                 for other_player in self.good_players
+                 if other_player is not player])
+                for player in self.alive_players
+            ]
+        )
+        voted = max(votes, key=votes.count)
+        self.players[voted].alive = False
+        if self.end(): return
         self.day()
+        self.loop.create_task(self.day_vote())
 
     def is_game_over(self):
-        return len(list(self.alive_players()))
-
-    def alive_players(self):
-        return (player
-                for player in self.players
-                if player.alive)
+        game_over = (
+            len(self.alive_players) <= 1
+            or len(self.good_players) <= len(self.evil_players)
+            or len(self.evil_players) < 1
+        )
+        return game_over
 
     def on_enter_end(self):
         self.loop.stop()
-        self.loop.close()
 
+    @property
+    def alive_players(self):
+        return [player
+                for player in self.players
+                if player.alive]
+
+    @property
+    def good_players(self):
+        return [player
+                for player in self.players
+                if player.alive and player.role.good]
+
+    @property
+    def evil_players(self):
+        return [player
+                for player in self.players
+                if player.alive and not player.role.good]

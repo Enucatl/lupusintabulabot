@@ -11,7 +11,7 @@ def test_player_vote():
         1,
         lupus.Role.villager,
         lupus.RemoteStub())
-    voted = yield from player.vote()
+    voted = yield from player.vote([2])
     assert voted == 2
 
 
@@ -23,5 +23,5 @@ def test_game_machine_init(event_loop):
     game = lupus.Game(players, event_loop)
     assert game.state == "initializing"
     game.run()
-    assert game.state == "day"
+    assert game.state == "end"
     assert len(game.players) == 3
