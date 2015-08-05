@@ -123,6 +123,18 @@ class Game:
 
     @asyncio.coroutine
     def night_vote(self):
+        # seers see
+        for seer, seen in async.as_completed(
+                {s: s.vote(
+                    [other_player.uuid
+                     for other_player in self.alive_players
+                     if other_player is not s
+                    ])
+                    for s in self.seers}.items()
+            ):
+            voted = yield from seen
+            self.loop.create_task(seer.remote.post(self.players[voted].role.good))
+        # wolves vote
         votes = yield from asyncio.gather(
             *[player.vote(
                 [other_player.uuid
@@ -153,6 +165,12 @@ class Game:
         return [player
                 for player in self.players
                 if player.alive]
+
+    @property
+    def seers(self):
+        return [player
+                for player in self.players
+                if player.alive and player.role is Role.seer]
 
     @property
     def good_players(self):

@@ -15,7 +15,7 @@ def test_player_vote():
     assert voted == 2
 
 
-def test_game_machine_init(event_loop):
+def test_game_machine(event_loop):
     players = [
         lupus.Player(
             i, role, lupus.RemoteStub())
